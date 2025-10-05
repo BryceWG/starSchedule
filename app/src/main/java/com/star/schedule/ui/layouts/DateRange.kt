@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
@@ -53,6 +55,11 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 
 data class LessonTime(
     val period: Int,
@@ -106,12 +113,12 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
     // 获取当前课表的全部课程（用于按周分页展示）
     val allCourses by if (timetableId != null) {
         dao.getCoursesFlow(timetableId).collectAsState(initial = emptyList())
-    } else emptyList<CourseEntity>().let { mutableStateOf(it) }
+    } else remember { mutableStateOf(emptyList<CourseEntity>()) }
 
     // 当前课表的作息时间
     val lessonTimes by if (timetableId != null) {
         dao.getLessonTimesFlow(timetableId).collectAsState(initial = emptyList())
-    } else emptyList<LessonTimeEntity>().let { mutableStateOf(it) }
+    } else remember { mutableStateOf(emptyList<LessonTimeEntity>()) }
 
     // 计算当前是第几周（基于 timetable.startDate），若失败则为 null
     val currentWeekNumber: Int? = try {
@@ -135,15 +142,13 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         initialPage = (initialWeek - 1).coerceIn(0, totalWeeks - 1),
         pageCount = { totalWeeks }
     )
+    val currentWeekIndex = currentWeekNumber?.let { (it - 1).coerceIn(0, totalWeeks - 1) }
 
     // 当获取到当前周或总页数变化时，自动跳转到当前周页面
-    androidx.compose.runtime.LaunchedEffect(currentWeekNumber, totalWeeks) {
-        val cw = currentWeekNumber
-        if (cw != null) {
-            val target = (cw - 1).coerceIn(0, totalWeeks - 1)
-            if (pagerState.currentPage != target) {
-                pagerState.scrollToPage(target)
-            }
+    androidx.compose.runtime.LaunchedEffect(currentWeekIndex, totalWeeks) {
+        val target = currentWeekIndex
+        if (target != null && pagerState.currentPage != target) {
+            pagerState.scrollToPage(target)
         }
     }
 
@@ -222,6 +227,32 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
                     TextButton(onClick = { showWeekPicker = false }) { Text("取消") }
                 }
             )
+        }
+
+        // 底部“返回本周”按钮（当当前页不是本周时显示）
+        val showBackToCurrent = currentWeekIndex != null &&
+                pagerState.currentPage != currentWeekIndex &&
+                !showWeekPicker
+        AnimatedVisibility(
+            visible = showBackToCurrent,
+            enter = fadeIn() + slideInVertically { it / 3 },
+            exit = fadeOut() + slideOutVertically { it / 3 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+        ) {
+            Button(
+                onClick = {
+                    currentWeekIndex?.let { idx ->
+                        scope.launch { pagerState.animateScrollToPage(idx) }
+                    }
+                },
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(text = "返回本周")
+            }
         }
     }
 }

@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.animation:animation")
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.room.runtime) {
         exclude(group = "com.intellij", module = "annotations")
