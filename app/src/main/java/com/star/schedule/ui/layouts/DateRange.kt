@@ -134,21 +134,26 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         null
     }
 
-    // 计算最大周数（用于分页），至少为 1
+    // 计算最大周数（用于分页），至少为 1，且确保包含当前周，避免初始页数不足导致二次跳转
     val maxWeekFromCourses = allCourses.flatMap { it.weeks }.maxOrNull() ?: 1
-    val totalWeeks = max(1, maxWeekFromCourses)
-    val initialWeek = (currentWeekNumber ?: 1).coerceAtLeast(1)
-    val pagerState = rememberPagerState(
-        initialPage = (initialWeek - 1).coerceIn(0, totalWeeks - 1),
-        pageCount = { totalWeeks }
-    )
-    val currentWeekIndex = currentWeekNumber?.let { (it - 1).coerceIn(0, totalWeeks - 1) }
+    val totalWeeks = max(max(1, maxWeekFromCourses), (currentWeekNumber ?: 1))
 
-    // 当获取到当前周或总页数变化时，自动跳转到当前周页面
-    androidx.compose.runtime.LaunchedEffect(currentWeekIndex, totalWeeks) {
-        val target = currentWeekIndex
-        if (target != null && pagerState.currentPage != target) {
-            pagerState.scrollToPage(target)
+    // 仅当能计算出当前周后再创建 Pager，避免冷启动时先落在第 1 周再跳动
+    val currentWeekIndex = currentWeekNumber?.let { (it - 1).coerceIn(0, totalWeeks - 1) }
+    val pagerState = if (currentWeekIndex != null) {
+        rememberPagerState(
+            initialPage = currentWeekIndex,
+            pageCount = { totalWeeks }
+        )
+    } else null
+
+    // 当总页数变化或当前周发生变化时，若 Pager 已创建则校正到当前周
+    if (pagerState != null) {
+        androidx.compose.runtime.LaunchedEffect(currentWeekIndex, totalWeeks) {
+            val target = currentWeekIndex
+            if (target != null && pagerState.currentPage != target) {
+                pagerState.scrollToPage(target)
+            }
         }
     }
 
@@ -156,6 +161,8 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
     var showWeekPicker by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // 仅在 pagerState 可用时渲染分页内容，避免冷启动闪动
+        if (pagerState != null) {
         HorizontalPager(state = pagerState) { page ->
             val selectedWeek = page + 1
 
@@ -201,6 +208,7 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
                 onWeekLabelClick = { showWeekPicker = true }
             )
         }
+        }
 
         if (showWeekPicker) {
             AlertDialog(
@@ -213,8 +221,10 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
                             items(weeks) { w ->
                                 TextButton(onClick = {
                                     showWeekPicker = false
-                                    scope.launch {
-                                        pagerState.animateScrollToPage((w - 1).coerceIn(0, totalWeeks - 1))
+                                    pagerState?.let { ps ->
+                                        scope.launch {
+                                            ps.animateScrollToPage((w - 1).coerceIn(0, totalWeeks - 1))
+                                        }
                                     }
                                 }, modifier = Modifier.fillMaxWidth()) {
                                     Text("第${w}周")
@@ -230,7 +240,7 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         }
 
         // 底部“返回本周”按钮（当当前页不是本周时显示）
-        val showBackToCurrent = currentWeekIndex != null &&
+        val showBackToCurrent = pagerState != null && currentWeekIndex != null &&
                 pagerState.currentPage != currentWeekIndex &&
                 !showWeekPicker
         AnimatedVisibility(
@@ -243,7 +253,9 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
             Button(
                 onClick = {
                     currentWeekIndex?.let { idx ->
-                        scope.launch { pagerState.animateScrollToPage(idx) }
+                        pagerState?.let { ps ->
+                            scope.launch { ps.animateScrollToPage(idx) }
+                        }
                     }
                 },
                 shape = RoundedCornerShape(4.dp),
