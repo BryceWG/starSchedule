@@ -3,6 +3,7 @@ package com.star.schedule.ui.layouts
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,13 +15,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -28,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +52,7 @@ import com.star.schedule.db.TimetableEntity
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
+import kotlinx.coroutines.launch
 
 data class LessonTime(
     val period: Int,
@@ -139,6 +147,9 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         }
     }
 
+    val scope = rememberCoroutineScope()
+    var showWeekPicker by remember { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         HorizontalPager(state = pagerState) { page ->
             val selectedWeek = page + 1
@@ -181,6 +192,35 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
                 showWeekend = timetable?.showWeekend ?: true,
                 currentWeek = selectedWeek,
                 showNonCurrentWeekCourses = showNonCurrent && selectedWeek == currentWeekNumber
+                ,
+                onWeekLabelClick = { showWeekPicker = true }
+            )
+        }
+
+        if (showWeekPicker) {
+            AlertDialog(
+                onDismissRequest = { showWeekPicker = false },
+                title = { Text("选择周数") },
+                text = {
+                    val weeks = (1..totalWeeks).toList()
+                    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                        LazyColumn {
+                            items(weeks) { w ->
+                                TextButton(onClick = {
+                                    showWeekPicker = false
+                                    scope.launch {
+                                        pagerState.animateScrollToPage((w - 1).coerceIn(0, totalWeeks - 1))
+                                    }
+                                }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("第${w}周")
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showWeekPicker = false }) { Text("取消") }
+                }
             )
         }
     }
@@ -216,7 +256,8 @@ fun ScheduleScreen(
     cellPadding: Dp = 2.dp,
     showWeekend: Boolean = true,
     currentWeek: Int? = null,
-    showNonCurrentWeekCourses: Boolean = false
+    showNonCurrentWeekCourses: Boolean = false,
+    onWeekLabelClick: () -> Unit
 ) {
     val allDayLabels = listOf("一", "二", "三", "四", "五", "六", "日")
     // 可见的星期数字（1=周一 ...）
@@ -254,7 +295,8 @@ fun ScheduleScreen(
                     Box(
                         modifier = Modifier
                             .width(leftColumnWidth)
-                            .padding(cellPadding),
+                            .padding(cellPadding)
+                            .clickable(enabled = currentWeek != null) { onWeekLabelClick() },
                         contentAlignment = Alignment.Center
                     ) {
                         if (currentWeek != null) {
