@@ -312,7 +312,8 @@ fun ScheduleScreen(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val totalWidth = maxWidth
-        val leftColumnWidth = 35.dp
+        // 左侧列（周次/节次/时间）最小宽度，确保“第10周”等两位数周次不被省略
+        val leftColumnWidth = 48.dp
         val dayColumnWidth = (totalWidth - leftColumnWidth - 5.dp) / visibleDayLabels.size
 
         // 使用 remember + mutableStateOf 保存标题高度
