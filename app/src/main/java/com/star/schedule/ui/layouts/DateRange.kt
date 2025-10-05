@@ -121,11 +121,23 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
 
     // 计算最大周数（用于分页），至少为 1
     val maxWeekFromCourses = allCourses.flatMap { it.weeks }.maxOrNull() ?: 1
+    val totalWeeks = max(1, maxWeekFromCourses)
     val initialWeek = (currentWeekNumber ?: 1).coerceAtLeast(1)
     val pagerState = rememberPagerState(
-        initialPage = (initialWeek - 1).coerceIn(0, max(1, maxWeekFromCourses) - 1),
-        pageCount = { max(1, maxWeekFromCourses) }
+        initialPage = (initialWeek - 1).coerceIn(0, totalWeeks - 1),
+        pageCount = { totalWeeks }
     )
+
+    // 当获取到当前周或总页数变化时，自动跳转到当前周页面
+    androidx.compose.runtime.LaunchedEffect(currentWeekNumber, totalWeeks) {
+        val cw = currentWeekNumber
+        if (cw != null) {
+            val target = (cw - 1).coerceIn(0, totalWeeks - 1)
+            if (pagerState.currentPage != target) {
+                pagerState.scrollToPage(target)
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HorizontalPager(state = pagerState) { page ->
