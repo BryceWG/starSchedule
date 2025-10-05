@@ -2,6 +2,7 @@ package com.star.schedule.ui.layouts
 
 import android.app.Activity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +44,7 @@ import com.star.schedule.db.ScheduleDao
 import com.star.schedule.db.TimetableEntity
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.math.max
 
 data class LessonTime(
     val period: Int,
@@ -64,6 +68,7 @@ data class CourseBlock(
 )
 
 
+@OptIn(ExperimentalFoundationApi::class)
 @Suppress("UNUSED_PARAMETER")
 @Composable
 fun DateRange(context: Activity, dao: ScheduleDao) {
@@ -90,12 +95,9 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         else -> showNonCurrentGlobal == "true"
     }
 
-    // 当前周的课程或全部课程（根据开关）
-    val today = LocalDate.now()
-    val courses by if (timetableId != null) {
-        val flow = if (showNonCurrent) dao.getCoursesFlow(timetableId)
-        else dao.getCoursesForDateFlow(timetableId, today)
-        flow.collectAsState(initial = emptyList())
+    // 获取当前课表的全部课程（用于按周分页展示）
+    val allCourses by if (timetableId != null) {
+        dao.getCoursesFlow(timetableId).collectAsState(initial = emptyList())
     } else emptyList<CourseEntity>().let { mutableStateOf(it) }
 
     // 当前课表的作息时间
@@ -109,7 +111,7 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         if (startStr.isNullOrBlank()) null
         else {
             val start = LocalDate.parse(startStr)
-            val days = ChronoUnit.DAYS.between(start, today).toInt()
+            val days = ChronoUnit.DAYS.between(start, LocalDate.now()).toInt()
             val week = (days / 7) + 1
             if (week < 1) 1 else week
         }
@@ -117,44 +119,58 @@ fun DateRange(context: Activity, dao: ScheduleDao) {
         null
     }
 
-    // 基于设置与当前周，显示当前周和未来周
-    val visibleEntities: List<CourseEntity> = if (currentWeekNumber != null) {
-        if (showNonCurrent) {
-            val currentCourses = courses.filter { it.weeks.contains(currentWeekNumber) }
-            val occupied = currentCourses.flatMap { ce -> ce.periods.map { p -> ce.dayOfWeek to p } }.toSet()
-            val futureCourses = courses.filter { entity ->
-                entity.weeks.any { it > currentWeekNumber } && !entity.weeks.contains(currentWeekNumber)
-            }.filter { entity ->
-                entity.periods.none { p -> (entity.dayOfWeek to p) in occupied }
-            }
-            currentCourses + futureCourses
-        } else {
-            courses.filter { entity -> entity.weeks.contains(currentWeekNumber) }
-        }
-    } else courses
+    // 计算最大周数（用于分页），至少为 1
+    val maxWeekFromCourses = allCourses.flatMap { it.weeks }.maxOrNull() ?: 1
+    val initialWeek = (currentWeekNumber ?: 1).coerceAtLeast(1)
+    val pagerState = rememberPagerState(
+        initialPage = (initialWeek - 1).coerceIn(0, max(1, maxWeekFromCourses) - 1),
+        pageCount = { max(1, maxWeekFromCourses) }
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
-        ScheduleScreen(
-            courses = visibleEntities.map { entity ->
-                Course(
-                    name = entity.name,
-                    location = entity.location,
-                    dayOfWeek = entity.dayOfWeek,
-                    periods = entity.periods,
-                    weeks = entity.weeks
-                )
-            },
-            lessonTimes = lessonTimes.map { entity ->
-                LessonTime(
-                    period = entity.period,
-                    startTime = entity.startTime,
-                    endTime = entity.endTime
-                )
-            },
-            showWeekend = timetable?.showWeekend ?: true,
-            currentWeek = currentWeekNumber,
-            showNonCurrentWeekCourses = showNonCurrent
-        )
+        HorizontalPager(state = pagerState) { page ->
+            val selectedWeek = page + 1
+
+            // 基于设置：当处于当前周且开启“显示非本周课程”时，显示非本周占位
+            val visibleEntities: List<CourseEntity> = if (
+                currentWeekNumber != null && showNonCurrent && selectedWeek == currentWeekNumber
+            ) {
+                val currentCourses = allCourses.filter { it.weeks.contains(selectedWeek) }
+                val occupied = currentCourses
+                    .flatMap { ce -> ce.periods.map { p -> ce.dayOfWeek to p } }
+                    .toSet()
+                val futureCourses = allCourses.filter { entity ->
+                    entity.weeks.any { it > selectedWeek } && !entity.weeks.contains(selectedWeek)
+                }.filter { entity ->
+                    entity.periods.none { p -> (entity.dayOfWeek to p) in occupied }
+                }
+                currentCourses + futureCourses
+            } else {
+                allCourses.filter { entity -> entity.weeks.contains(selectedWeek) }
+            }
+
+            ScheduleScreen(
+                courses = visibleEntities.map { entity ->
+                    Course(
+                        name = entity.name,
+                        location = entity.location,
+                        dayOfWeek = entity.dayOfWeek,
+                        periods = entity.periods,
+                        weeks = entity.weeks
+                    )
+                },
+                lessonTimes = lessonTimes.map { entity ->
+                    LessonTime(
+                        period = entity.period,
+                        startTime = entity.startTime,
+                        endTime = entity.endTime
+                    )
+                },
+                showWeekend = timetable?.showWeekend ?: true,
+                currentWeek = selectedWeek,
+                showNonCurrentWeekCourses = showNonCurrent && selectedWeek == currentWeekNumber
+            )
+        }
     }
 }
 
